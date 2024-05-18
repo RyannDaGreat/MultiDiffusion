@@ -172,40 +172,51 @@ def preprocess_mask(mask_path, h, w, device):
     mask = torch.nn.functional.interpolate(mask, size=(h, w), mode='nearest')
     return mask
 
+def main(mask_paths: list, 
+         bg_prompt: str, 
+         bg_negative: str, 
+         fg_prompts: list, 
+         fg_negative: list, 
+         sd_version: str = '2.0', 
+         H: int = 768, 
+         W: int = 512, 
+         seed: int = 0, 
+         steps: int = 50, 
+         bootstrapping: int = 20):
+    """
+    Generates an image using a diffusion model based on provided prompts and masks.
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--mask_paths', type=list)
-    # important: it is necessary that SD output high-quality images for the bg/fg prompts.
-    parser.add_argument('--bg_prompt', type=str)
-    parser.add_argument('--bg_negative', type=str)  # 'artifacts, blurry, smooth texture, bad quality, distortions, unrealistic, distorted image'
-    parser.add_argument('--fg_prompts', type=list)
-    parser.add_argument('--fg_negative', type=list)  # 'artifacts, blurry, smooth texture, bad quality, distortions, unrealistic, distorted image'
-    parser.add_argument('--sd_version', type=str, default='2.0', choices=['1.5', '2.0'],
-                        help="stable diffusion version")
-    parser.add_argument('--H', type=int, default=768)
-    parser.add_argument('--W', type=int, default=512)
-    parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--steps', type=int, default=50)
-    # bootstrapping encourages high fidelity to tight masks, the value can be lowered is most cases
-    parser.add_argument('--bootstrapping', type=int, default=20)
-    opt = parser.parse_args()
-
-    seed_everything(opt.seed)
+    Args:
+        mask_paths (list): Paths to the mask files.
+        bg_prompt (str): Background prompt for the diffusion model.
+        bg_negative (str): Negative attributes to avoid in the background (e.g., 'artifacts, blurry').
+        fg_prompts (list): List of foreground prompts.
+        fg_negative (list): List of negative attributes to avoid in the foreground.
+        sd_version (str): Version of the stable diffusion model, default is '2.0'.
+        H (int): Height of the generated image, default is 768.
+        W (int): Width of the generated image, default is 512.
+        seed (int): Seed for random number generation, default is 0.
+        steps (int): Number of diffusion steps, default is 50.
+        bootstrapping (int): Encourages high fidelity to tight masks, can usually be lowered, default is 20.
+    """
+    seed_everything(seed)
 
     device = torch.device('cuda')
 
-    sd = MultiDiffusion(device, opt.sd_version)
+    sd = MultiDiffusion(device, sd_version)
 
-    fg_masks = torch.cat([preprocess_mask(mask_path, opt.H // 8, opt.W // 8, device) for mask_path in opt.mask_paths])
+    fg_masks = torch.cat([preprocess_mask(mask_path, H // 8, W // 8, device) for mask_path in mask_paths])
     bg_mask = 1 - torch.sum(fg_masks, dim=0, keepdim=True)
     bg_mask[bg_mask < 0] = 0
     masks = torch.cat([bg_mask, fg_masks])
 
-    prompts = [opt.bg_prompt] + opt.fg_prompts
-    neg_prompts = [opt.bg_negative] + opt.fg_negative
+    prompts = [bg_prompt] + fg_prompts
+    neg_prompts = [bg_negative] + fg_negative
 
-    img = sd.generate(masks, prompts, neg_prompts, opt.H, opt.W, opt.steps, bootstrapping=opt.bootstrapping)
+    img = sd.generate(masks, prompts, neg_prompts, H, W, steps, bootstrapping=bootstrapping)
 
     # save image
     img.save('out.png')
+
+if __name__ == '__main__':
+    fire.Fire(main)
